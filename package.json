@@ -1,0 +1,14 @@
+{
+  "name": "docx-processor-service",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "pizzip": "^3.1.6",
+    "docxtemplater": "^3.45.0",
+    "formidable": "^3.5.1",
+    "express": "^4.18.2"
+  }
+}
