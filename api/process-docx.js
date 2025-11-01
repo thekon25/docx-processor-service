@@ -2,7 +2,7 @@
 const PizZip = require('pizzip');
 const Docxtemplater = require('docxtemplater');
 const formidable = require('formidable');
-const fs = require('fs');
+const { Readable } = require('stream');
 
 module.exports = async (req, res) => {
   // CORS заголовки для n8n
@@ -22,15 +22,45 @@ module.exports = async (req, res) => {
   
   form.parse(req, async (err, fields, files) => {
     if (err) {
-      return res.status(500).json({ error: 'Failed to parse form data' });
+      console.error('Form parse error:', err);
+      return res.status(500).json({ error: 'Failed to parse form data', message: err.message });
     }
 
     try {
+      // Проверим наличие файла и данных
+      if (!files.template) {
+        return res.status(400).json({ error: 'Missing template file' });
+      }
+
+      if (!fields.data) {
+        return res.status(400).json({ error: 'Missing data field' });
+      }
+
       const templateFile = files.template;
-      const templateBuffer = fs.readFileSync(templateFile.filepath);
       
-      const data = JSON.parse(fields.data);
+      // Читаем файл из памяти (буфер)
+      const templateBuffer = await new Promise((resolve, reject) => {
+        const chunks = [];
+        const stream = require('fs').createReadStream(templateFile.filepath);
+        
+        stream.on('data', chunk => chunks.push(chunk));
+        stream.on('end', () => resolve(Buffer.concat(chunks)));
+        stream.on('error', reject);
+      });
       
+      // Парсим JSON данные
+      let data;
+      try {
+        data = typeof fields.data === 'string' ? JSON.parse(fields.data) : fields.data;
+      } catch (parseErr) {
+        console.error('JSON parse error:', parseErr);
+        return res.status(400).json({ error: 'Invalid JSON in data field', message: parseErr.message });
+      }
+      
+      console.log('Template buffer size:', templateBuffer.length);
+      console.log('Data keys:', Object.keys(data));
+      
+      // Обработка документа
       const zip = new PizZip(templateBuffer);
       
       const doc = new Docxtemplater(zip, {
@@ -47,13 +77,20 @@ module.exports = async (req, res) => {
         compression: 'DEFLATE'
       });
       
+      console.log('Processed buffer size:', processedBuffer.length);
+      
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
       res.setHeader('Content-Disposition', 'attachment; filename="processed.docx"');
       res.send(processedBuffer);
       
     } catch (error) {
       console.error('Processing error:', error);
-      res.status(500).json({ error: 'Failed to process document', details: error.message });
+      console.error('Error stack:', error.stack);
+      res.status(500).json({ 
+        error: 'Failed to process document', 
+        message: error.message,
+        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      });
     }
   });
 };
